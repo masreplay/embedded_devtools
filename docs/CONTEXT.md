@@ -190,7 +190,8 @@ Everything else (Inspector, Network, …) works, so the proxy is not broadly bro
 ## 7. Open issue: 94 MB of assets ship to production
 
 Measured with `flutter build apk --release --target-platform=android-arm64 --analyze-size`
-on a demo whose `main.dart` guards **both** call sites with `if (kDebugMode)`:
+on a demo whose `main.dart` guards **both** call sites (with `!kReleaseMode` —
+see the warning below):
 
 - ✅ `embedded_devtools` **Dart code**: tree-shaken completely — zero bytes in the
   release binary. `kDebugMode` is a const `false`, so AOT drops the branches.
@@ -200,6 +201,14 @@ on a demo whose `main.dart` guards **both** call sites with `if (kDebugMode)`:
 **Assets are never tree-shaken.** Anything under `flutter: assets:` is bundled
 unconditionally; there's no reachability analysis for assets. Code guards buy a
 few hundred KB and none of the 94 MB.
+
+> ⚠️ **Guard with `!kReleaseMode`, never `kDebugMode`.** The SDK defines
+> `const bool kDebugMode = !kReleaseMode && !kProfileMode;`
+> (`flutter/lib/src/foundation/constants.dart:64`) — so `kDebugMode` is **false
+> in profile**, and `if (kDebugMode) EmbeddedDevTools.start()` silently disables
+> the tool in the exact build QA gets. Both are compile-time consts, so
+> `!kReleaseMode` tree-shakes just as well in release. Guards are optional
+> anyway: `start()` already no-ops in release.
 
 **Candidate fix (untested): asset flavors.**
 ```yaml

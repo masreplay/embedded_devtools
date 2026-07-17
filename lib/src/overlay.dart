@@ -105,7 +105,9 @@ class _DevToolsSheet extends StatelessWidget {
     return DefaultTabController(
       length: 2,
       child: Material(
-        color: const Color(0xF2111111),
+        // Fully opaque: anything less lets the host app's UI (e.g. its AppBar
+        // title) bleed through and collide with the sheet's own chrome.
+        color: const Color(0xFF111111),
         child: SafeArea(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,

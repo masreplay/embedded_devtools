@@ -9,12 +9,16 @@ import 'dart:io';
 
 import 'package:embedded_devtools/src/cli/android_setup.dart';
 import 'package:embedded_devtools/src/cli/bundle.dart';
+import 'package:embedded_devtools/src/cli/ios_setup.dart';
 
 void main(List<String> args) {
   stdout.writeln('embedded_devtools: setting up\n');
 
   stdout.writeln('Android');
   setupAndroid();
+
+  stdout.writeln('\niOS');
+  setupIos();
 
   stdout.writeln('\nAssets');
   if (!runBundle()) exit(1);

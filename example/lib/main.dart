@@ -1,19 +1,30 @@
 import 'package:embedded_devtools/embedded_devtools.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Serves DevTools from this app's assets and proxies its own VM service.
-  // A no-op in release builds, which have no VM service.
-  EmbeddedDevTools.start();
+  // Guard with !kReleaseMode, NOT kDebugMode: kDebugMode is false in profile
+  // builds, and profile is the build you hand to QA (release-grade speed, VM
+  // service intact). kReleaseMode is a compile-time const, so release still
+  // tree-shakes all of this away.
+  //
+  // The guards are optional — start() no-ops and the overlay renders nothing in
+  // release anyway. They just let the AOT compiler drop the code entirely.
+  if (!kReleaseMode) EmbeddedDevTools.start();
 
-  runApp(MaterialApp(
-    home: const HomePage(),
-    // The draggable bubble that opens DevTools inside the app.
-    builder: (context, child) =>
-        EmbeddedDevToolsOverlay(child: child ?? const SizedBox()),
-  ));
+  runApp(
+    MaterialApp(
+      home: const HomePage(),
+      builder: (context, child) {
+        if (!kReleaseMode) {
+          return EmbeddedDevToolsOverlay(child: child ?? const SizedBox());
+        }
+        return child ?? const SizedBox();
+      },
+    ),
+  );
 }
 
 class HomePage extends StatefulWidget {

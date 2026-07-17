@@ -54,6 +54,19 @@ flutter build apk --profile
 > engine compiles it out — so DevTools has nothing to attach to. Profile is the
 > "QA release": release-grade performance with the VM service intact.
 
+No guards are needed: `start()` no-ops and the overlay renders nothing in
+release. If you want the AOT compiler to drop the code entirely, guard with
+**`!kReleaseMode`**:
+
+```dart
+if (!kReleaseMode) EmbeddedDevTools.start();
+```
+
+> ⚠️ **Don't guard with `kDebugMode`.** In the Flutter SDK it's defined as
+> `!kReleaseMode && !kProfileMode` — so it's **false in profile builds**, and
+> would silently disable DevTools in the very build you hand to QA.
+> `kReleaseMode` is a compile-time const too, so release still tree-shakes it.
+
 ---
 
 ## Extensions come along for free

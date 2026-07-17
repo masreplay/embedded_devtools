@@ -17,4 +17,47 @@ dependencies:
   shared_preferences: ^2.5.5
 
 flutter:
+  assets:
+    # BEGIN embedded_devtools (generated — do not edit)
+    - assets/devtools/
+    - assets/devtools/assets/
+    - assets/devtools/assets/assets/
+    - assets/devtools/assets/assets/img/
+    - assets/devtools/assets/assets/img/doc/
+    - assets/devtools/assets/assets/img/layout_explorer/
+    - assets/devtools/assets/assets/img/layout_explorer/cross_axis_alignment/
+    - assets/devtools/assets/assets/img/layout_explorer/main_axis_alignment/
+    - assets/devtools/assets/assets/img/legend/
+    - assets/devtools/assets/fonts/
+    - assets/devtools/assets/fonts/Roboto/
+    - assets/devtools/assets/fonts/Roboto_Mono/
+    - assets/devtools/assets/icons/
+    - assets/devtools/assets/icons/actions/
+    - assets/devtools/assets/icons/app_bar/
+    - assets/devtools/assets/icons/custom/
+    - assets/devtools/assets/icons/general/
+    - assets/devtools/assets/icons/gutter/
+    - assets/devtools/assets/icons/inspector/
+    - assets/devtools/assets/icons/inspector/widget_icons/
+    - assets/devtools/assets/icons/material_symbols/
+    - assets/devtools/assets/icons/memory/
+    - assets/devtools/assets/icons/perf/
+    - assets/devtools/assets/packages/devtools_app_shared/fonts/Roboto/
+    - assets/devtools/assets/packages/devtools_app_shared/fonts/Roboto_Mono/
+    - assets/devtools/assets/packages/perfetto_ui_compiled/dist/
+    - assets/devtools/assets/packages/perfetto_ui_compiled/dist/devtools/
+    - assets/devtools/assets/packages/perfetto_ui_compiled/dist/v34.0-16f63abe3/
+    - assets/devtools/assets/packages/perfetto_ui_compiled/dist/v34.0-16f63abe3/assets/
+    - assets/devtools/assets/shaders/
+    - assets/devtools/canvaskit/
+    - assets/devtools/canvaskit/chromium/
+    - assets/devtools/canvaskit/experimental_webparagraph/
+    - assets/devtools_extensions/
+    - assets/devtools_extensions/shared_preferences_1.0.0/
+    - assets/devtools_extensions/shared_preferences_1.0.0/assets/
+    - assets/devtools_extensions/shared_preferences_1.0.0/assets/fonts/
+    - assets/devtools_extensions/shared_preferences_1.0.0/assets/packages/devtools_app_shared/fonts/Roboto/
+    - assets/devtools_extensions/shared_preferences_1.0.0/assets/packages/devtools_app_shared/fonts/Roboto_Mono/
+    - assets/devtools_extensions/shared_preferences_1.0.0/assets/shaders/
+    # END embedded_devtools
   uses-material-design: true
