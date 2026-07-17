@@ -9,3 +9,5 @@
   DevTools' own Extensions area, served from app assets.
 - `bundle` CLI: copies the DevTools build from your Flutter SDK, discovers and
   copies extension builds, writes the runtime manifest, and updates pubspec.
+
+- `init` CLI: one-command setup (Android wiring + assets + pubspec).

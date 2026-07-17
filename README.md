@@ -1,123 +1,182 @@
 # embedded_devtools
 
-**Flutter DevTools, embedded in your app.** Open the full DevTools suite on a
-real device — no computer, no cable, no IDE.
+**Flutter DevTools, embedded in your app.**
 
-The app serves the DevTools web build itself and proxies its own VM service, so
-a tester with nothing but an APK gets the Inspector, Performance, CPU Profiler,
-Memory, Network, Logging — and every DevTools extension your dependencies ship.
+Open the full DevTools suite on a real device — no computer, no cable, no IDE.
+Hand a tester an APK and they get the Inspector, Performance, CPU Profiler,
+Memory, Network and Logging, plus every DevTools extension your dependencies
+ship. All of it inside the app.
 
-## Setup
+The app serves the DevTools web build from its own assets and proxies its own
+VM service, so nothing outside the phone is involved.
+
+---
+
+## Install
 
 ```yaml
 dependencies:
   embedded_devtools: ^0.1.0
 ```
 
-Bundle the web assets (re-run whenever dependencies change — same cadence as
-`pub get`):
-
 ```sh
-dart run embedded_devtools:bundle
+dart run embedded_devtools:init
 ```
 
-That copies DevTools out of *your* Flutter SDK, discovers every dependency that
-ships a DevTools extension, copies their prebuilt builds, and writes the
-`assets:` entries into your `pubspec.yaml` for you.
+That's the setup. `init` wires up Android, copies DevTools out of your Flutter
+SDK, finds every extension your dependencies ship, and writes your pubspec's
+`assets:` entries.
 
-Then start it and add the bubble:
+Then add two lines to `main.dart`:
 
 ```dart
 import 'package:embedded_devtools/embedded_devtools.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  EmbeddedDevTools.start();
+  EmbeddedDevTools.start();                       // ← 1
 
   runApp(MaterialApp(
     home: const HomePage(),
     builder: (context, child) =>
-        EmbeddedDevToolsOverlay(child: child ?? const SizedBox()),
+        EmbeddedDevToolsOverlay(child: child ?? const SizedBox()),  // ← 2
   ));
 }
 ```
 
-### Android
-
-The in-app WebView loads the server over plain http on loopback, which Android
-blocks by default in profile/release builds. Add a localhost-scoped exception —
-`android/app/src/main/res/xml/network_security_config.xml`:
-
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<network-security-config>
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">127.0.0.1</domain>
-        <domain includeSubdomains="true">localhost</domain>
-    </domain-config>
-</network-security-config>
-```
-
-and reference it from `<application>` in `AndroidManifest.xml`:
-
-```xml
-<application android:networkSecurityConfig="@xml/network_security_config" ...>
-```
-
-Every other domain keeps the platform default.
-
-## Use it
-
-Build with `--profile`, install, launch, tap the bubble.
+Build, install, tap the bubble:
 
 ```sh
 flutter build apk --profile
 ```
 
-## Extensions
+> **Use `--profile`.** Release builds have no Dart VM service — the AOT product
+> engine compiles it out — so DevTools has nothing to attach to. Profile is the
+> "QA release": release-grade performance with the VM service intact.
 
-Anything your app already depends on that ships a DevTools extension shows up
-under DevTools' own Extensions area — nothing to register, no code to write:
+---
+
+## Extensions come along for free
+
+Anything you already depend on that ships a DevTools extension appears under
+DevTools' own **Extensions** area. Nothing to register, no code to write:
 
 ```yaml
 dependencies:
   embedded_devtools: ^0.1.0
-  provider: ^6.1.5           # ships a DevTools extension
-  shared_preferences: ^2.5.5 # ships a DevTools extension
+
+  provider: ^6.1.5             # ships a DevTools extension
+  shared_preferences: ^2.5.5   # ships a DevTools extension
 ```
 
 ```sh
 dart run embedded_devtools:bundle
 ```
-```
-DevTools: 412 files (81.4 MB)
-  provider 6.1.5 → provider_6.1.5 (1.9 MB)
-  shared_preferences 2.5.5 → shared_preferences_2.5.5 (1.8 MB)
 
-Extensions: 2 bundled.
-pubspec.yaml: wrote 27 asset entries.
+```
+✓ DevTools: 434 files (80.0 MB)
+    provider 0.0.1 → provider_0.0.1 (7.3 MB)
+    shared_preferences 1.0.0 → shared_preferences_1.0.0 (7.2 MB)
+✓ Extensions: 2 bundled
+✓ pubspec.yaml: wrote 47 asset entries
 ```
 
-On desktop, DevTools' *server* finds extensions by reading your
-`package_config.json` and serving each package's prebuilt
-`extension/devtools/build/`. A device has neither that server nor a pub cache,
-so `bundle` does the same discovery at build time and the embedded server
-replays the result. Extensions ship prebuilt, so nothing is compiled — it's a
-file copy.
+Add a package → re-run `bundle` → it's there. Remove it → it's gone. This
+package never names any extension; the list is discovered and written to a
+manifest at build time.
+
+> The version shown is the **extension's** version from its
+> `extension/devtools/config.yaml`, not the package's — provider 6.1.5 ships
+> extension `0.0.1`. DevTools identifies extensions as `<name>_<extension
+> version>`, so that's what the asset folders use.
+
+---
+
+## Commands
+
+| Command | When |
+|---|---|
+| `dart run embedded_devtools:init` | Once, at setup. Android wiring + assets. |
+| `dart run embedded_devtools:bundle` | Whenever dependencies change — same cadence as `pub get`. |
+
+Run both with the same SDK you build with (`fvm dart run …` if you use FVM):
+DevTools is copied out of *that* SDK, so your app always ships the DevTools
+version matching your Flutter.
+
+---
+
+## How it works
+
+On your laptop, DevTools doesn't find extensions by itself — a **DevTools
+server** does, by reading your project's `package_config.json` and serving each
+package's prebuilt `extension/devtools/build/` off disk.
+
+A phone has no such server and no pub cache. So:
+
+- **`bundle`** performs that same discovery at *build* time and copies the
+  results into your app's assets. Extensions ship prebuilt, so nothing is
+  compiled — it's a file copy. Every extension's identical ~37 MB CanvasKit is
+  skipped and shared from the one DevTools copy.
+- **`EmbeddedDevTools.start()`** runs a small HTTP server in the app that
+  serves those assets, proxies the app's VM service over a websocket, and
+  answers the handful of DevTools-server API calls the frontend needs —
+  including extension discovery.
+- **`EmbeddedDevToolsOverlay`** shows a draggable bubble that opens DevTools in
+  an in-app WebView, pointed at that server.
+
+---
+
+## API
+
+```dart
+EmbeddedDevTools.start({
+  int port = 9200,          // first free port in [port, port + 10)
+  bool keepAlive = true,    // Android foreground service; see below
+});
+
+EmbeddedDevTools.server;    // DevToolsServerHandle? — urls, extensions, port
+
+EmbeddedDevToolsOverlay(child: child);
+```
+
+The overlay's **Links** tab also lists a LAN URL per network interface, if you'd
+rather open DevTools in the phone's browser or from a PC on the same WiFi.
+
+---
 
 ## Hard limits (physics, not bugs)
 
-- **Release builds have no VM service.** The AOT product engine compiles it
-  out, so there is nothing for DevTools to attach to. `EmbeddedDevTools.start()`
-  is a no-op in release, and the overlay renders nothing. Use `--profile`: it's
-  the "QA release" — release-grade performance with the VM service intact.
-  (This is also why iOS TestFlight is out: it only ships release builds.)
-- **Assets are large.** The DevTools build is ~80 MB. Put this behind a QA
-  flavor rather than shipping it to production.
-- **Backgrounding freezes the server on Android 12+** (cached-app freezer).
-  `EmbeddedDevTools.start(keepAlive: true)` — the default — runs a foreground
-  service to mitigate it. The in-app WebView sidesteps it entirely: nothing is
+- **Release builds have no VM service.** `EmbeddedDevTools.start()` is a no-op
+  in release and the overlay renders nothing. Use `--profile`. This is also why
+  iOS TestFlight is out: it only ships release builds.
+- **The assets are large** (~80 MB for DevTools, plus a few MB per extension).
+  Put this behind a QA flavor rather than shipping it to production.
+- **Android 12+ freezes backgrounded apps** (the cached-app freezer), which
+  stops the server answering while the phone's browser is in front.
+  `start(keepAlive: true)` — the default — runs a foreground service to
+  mitigate it. The in-app WebView sidesteps the problem entirely: nothing is
   backgrounded.
-- **The wasm DevTools build can't be used.** It needs SharedArrayBuffer via
-  cross-origin isolation, which a plain-http loopback server can't grant. The
-  server always selects the dart2js+canvaskit build, which renders everywhere.
+- **The wasm DevTools build can't be used.** It needs `SharedArrayBuffer` via
+  cross-origin isolation, which a plain-http loopback server cannot grant — it
+  renders a blank page. The server always selects the dart2js + CanvasKit
+  build, which works everywhere.
+
+---
+
+## What `init` changes in your project
+
+Nothing surprising, and nothing that reaches production:
+
+- `android/app/src/main/res/xml/network_security_config.xml` — permits cleartext
+  **to 127.0.0.1 and localhost only**; every other domain keeps the platform
+  default.
+- `android/app/src/{debug,profile}/AndroidManifest.xml` — reference that config.
+  Deliberately **not** `src/main`, so the exception cannot exist in a release
+  build.
+- `pubspec.yaml` — a generated `assets:` block between marker comments. Safe to
+  re-run; it rewrites only that block.
+
+If your app already sets its own `networkSecurityConfig`, `init` won't fight the
+manifest merger — it says so and leaves your config alone. Make sure it permits
+cleartext to `127.0.0.1`, or the DevTools tab will show
+`ERR_CLEARTEXT_NOT_PERMITTED`.
