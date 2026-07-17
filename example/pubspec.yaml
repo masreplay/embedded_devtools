@@ -1,0 +1,20 @@
+name: embedded_devtools_example
+description: Minimal app demonstrating embedded_devtools.
+publish_to: none
+version: 1.0.0
+
+environment:
+  sdk: ^3.8.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  embedded_devtools:
+    path: ../
+
+  # Ships a DevTools extension — it shows up in DevTools automatically
+  # once `dart run embedded_devtools:init` has bundled it.
+  shared_preferences: ^2.5.5
+
+flutter:
+  uses-material-design: true
