@@ -37,11 +37,12 @@ dependencies on it.
 | Extensions discovered + listed in DevTools' Extensions dialog | ✅ verified (provider, shared_preferences) |
 | Extensions appear as DevTools screens with icons | ✅ verified |
 | Extension iframe loads and renders its UI | ✅ verified |
-| **Extension connects back to its package at runtime** | ❌ **broken — see §6** |
+| **Extension inspects the app via eval** | ❌ **impossible — see §6** |
 | Excluding the ~94 MB assets from production builds | ❓ untested — see §7 |
 
 Repo: https://github.com/masreplay/embedded_devtools (public, MIT).
-**Not published to pub.dev** — don't, until §6 is resolved; versions are permanent.
+**Not published to pub.dev** yet — versions there are permanent, so publish only
+once you're happy the eval limitation (§6) is stated honestly in the README.
 
 ---
 
@@ -160,30 +161,52 @@ adb logcat -d | grep -oE "\[embedded_devtools\] .*"
 
 ---
 
-## 6. Open issue: extensions can't reach their package
+## 6. RESOLVED (not fixable): extensions can't eval
 
-`provider`'s extension renders, then shows:
-> *DevTools failed to connect with package:provider. This could be caused by an
-> older version of package:provider; please make sure that you are using version >=5.0.0.*
+**Root cause: expression evaluation requires a compilation service that only
+exists when a computer runs `flutter run`.** Proven by driving the VM service
+through our own proxy on a **debug** iOS build:
 
-Facts established:
-- Happens with the app **genuinely using** provider (`MultiProvider`, real `ChangeNotifierProvider`s).
-- Happens in **profile AND debug** builds.
-- Therefore **not** the usual `kDebugMode` gating — provider guards its devtools
-  hooks with `kDebugMode` (`ProviderBinding.debugInstance`), which was the
-  obvious hypothesis, and a debug build **disproved it**.
-- The error is thrown inside the extension's own `main.dart.js`.
+```
+evaluate(rootLib, '1+1')
+→ {"code":113,"message":"Expression compilation error",
+   "data":{"details":"_compileExpression: No compilation service available;
+                      cannot evaluate from source."}}
+```
 
-**Open lead (unconfirmed):** DevTools reports **"Flutter native (profile build)"
-even for a debug build** (DEBUG banner visible on screen) when connected through
-our ws proxy. If DevTools misidentifies the build type, it likely disables the
-evaluation-based features an extension like `provider` depends on.
+The Dart VM does not compile Dart source. `evaluate` delegates to
+`_compileExpression`, a service registered by the **`frontend_server` process
+that `flutter_tools` spawns**. A standalone app has no Flutter tool attached →
+no compilation service → **eval is impossible, in debug too**.
 
-Next step: find how DevTools computes `connectedApp.isProfileBuild` /
-`isDebugFlutterApp` and determine whether the proxy — or a race where DevTools
-connects before the app's service extensions register — is fooling it.
+`provider`'s extension calls `evaluate`/`getObject`/`getIsolate`. So do
+`riverpod`, `shared_preferences` (it evals
+`SharedPreferencesDevToolsExtensionData().…`) and `get_it`. Hence all four
+render and then fail. provider's *"...use version >=5.0.0"* message is a red
+herring.
 
-Everything else (Inspector, Network, …) works, so the proxy is not broadly broken.
+**This is unfixable here.** A compilation service would mean shipping the Dart
+SDK, platform dill, and package sources to the device, and running a JIT VM to
+host them. Not feasible, and impossible in AOT builds regardless.
+
+### Hypotheses that were wrong (don't retry)
+1. **`kDebugMode` gating.** provider guards its hooks with `kDebugMode`, which
+   is false in profile — plausible, and **disproved**: a debug build failed
+   identically.
+2. **DevTools misdetecting "profile build" through our proxy.** DevTools does
+   label a debug build `(profile build)` in our setup, which looked causal. But
+   the proxy is exonerated: `getIsolate` through it returns **71 extensionRPCs
+   including `ext.flutter.debugAllowBanner`**, and the eval failure is the VM's
+   own, upstream of anything DevTools decides. The mislabel is cosmetic and
+   unrelated. (It also isn't computed from `debugAllowBanner` in this DevTools
+   version — that string appears once, only in a descriptor list.)
+
+### What still works
+The proxy is a raw byte pipe with no filtering, so an extension that used
+**registered service extensions** (`ext.<name>.*`) instead of eval would work.
+We know of no popular one that does. DevTools' own eval surfaces (evaluation
+console, watch expressions) are unavailable for the same reason. Inspector,
+Performance, CPU, Memory, Network and Logging need no eval and are unaffected.
 
 ---
 
@@ -262,18 +285,25 @@ Then `--flavor qa` bundles them and `--flavor prod` doesn't. If this works on
 6. **`adb shell screencap` prints a multi-display warning to stdout**, corrupting
    `exec-out > file.png`. Write to `/sdcard` and `adb pull` instead. `-d 0` is
    not reliably valid.
-7. **Don't trust reasoning over execution here.** Two confident hypotheses
-   (debug allows cleartext; `kDebugMode` gating explains §6) were both wrong and
-   both were killed in minutes by actually running the thing.
+7. **`evaluate` never works here** — no compilation service without
+   `flutter run` (§6). If something "can't connect to the app", check whether it
+   evals before theorising about build modes or the proxy. One `evaluate` call
+   through the proxy answers in seconds what two wrong hypotheses could not.
+8. **Don't trust reasoning over execution here.** Three confident hypotheses
+   (debug allows cleartext; `kDebugMode` gating explains §6; the proxy hides
+   service extensions) were all wrong, and each was killed in minutes by
+   actually running the thing.
 
 ---
 
 ## 10. Next steps
 
-1. **§6** — root-cause the extension↔package connection. Highest value: it's the
-   difference between "extensions render" and "extensions work", and it blocks a
-   credible pub.dev release. Start with `isProfileBuild` detection.
+1. ~~**§6** — root-cause the extension↔package connection.~~ **Done: it's
+   unfixable** (eval needs a compilation service that only `flutter run`
+   provides). No code change possible; documented instead. This no longer
+   blocks a pub.dev release — the limitation just has to be stated honestly.
 2. **§7** — test asset flavors; if they work, teach `bundle` to emit them.
+   (Lower priority: the owner has said he doesn't mind the size.)
 3. Consider `hook/build.dart` + data assets to replace the `bundle` CLI once
    `dartDataAssets` reaches stable (it's **master-only** in 3.44 —
    `flutter_tools/lib/src/features.dart`). That would remove the manual command

@@ -7,12 +7,15 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'devtools_server.dart';
 
 /// Wraps the app (via `MaterialApp`'s `builder`) with a draggable bubble.
-/// Tapping it opens a full-screen sheet with two tabs:
+/// Tapping it opens a bottom sheet with:
 ///
 /// - **DevTools** — the full DevTools suite in an in-app WebView, pointed at
 ///   the embedded server. No external browser, no cable, no IDE.
 /// - **Links** — the same URLs for opening DevTools in the phone's browser or
 ///   from a PC on the same network.
+///
+/// The WebView is kept alive after the sheet is dismissed so reopening does
+/// not cold-boot DevTools. Use the refresh control to force a reload.
 ///
 /// Visible in debug and profile builds. Release builds render nothing: the
 /// AOT product engine has no VM service, so DevTools has nothing to attach to.
@@ -34,8 +37,59 @@ class EmbeddedDevToolsOverlay extends StatefulWidget {
 }
 
 class _EmbeddedDevToolsOverlayState extends State<EmbeddedDevToolsOverlay> {
+  static const _sheetHeightFraction = 0.9;
+  static const _animDuration = Duration(milliseconds: 280);
+
   bool _open = false;
+  bool _showLinks = false;
+  /// True after the first open so the sheet (and WebView) stay in the tree.
+  bool _sheetMounted = false;
   Offset _bubble = const Offset(16, 200);
+
+  WebViewController? _controller;
+  Uri? _loadedUrl;
+  int _progress = 0;
+
+  void _ensureWebView(Uri url) {
+    if (_controller != null && _loadedUrl == url) return;
+    _loadedUrl = url;
+    _progress = 0;
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(const Color(0xFF111111))
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onProgress: (p) {
+            if (mounted) setState(() => _progress = p);
+          },
+        ),
+      )
+      ..loadRequest(url);
+  }
+
+  void _openSheet(DevToolsServerHandle? server) {
+    final url = server?.devToolsUrl;
+    setState(() {
+      _open = true;
+      _sheetMounted = true;
+      _showLinks = false;
+      if (url != null) _ensureWebView(url);
+    });
+  }
+
+  void _closeSheet() {
+    setState(() {
+      _open = false;
+      _showLinks = false;
+    });
+  }
+
+  void _reloadWebView() {
+    final controller = _controller;
+    if (controller == null) return;
+    setState(() => _progress = 0);
+    controller.reload();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -53,11 +107,20 @@ class _EmbeddedDevToolsOverlayState extends State<EmbeddedDevToolsOverlay> {
       child: Stack(
         children: [
           widget.child,
-          if (_open)
+          if (_sheetMounted)
             Positioned.fill(
-              child: _DevToolsSheet(
+              child: _DevToolsBottomSheet(
+                open: _open,
+                showLinks: _showLinks,
                 server: server,
-                onClose: () => setState(() => _open = false),
+                controller: _controller,
+                progress: _progress,
+                sheetHeightFraction: _sheetHeightFraction,
+                animDuration: _animDuration,
+                onClose: _closeSheet,
+                onReload: _reloadWebView,
+                onShowLinks: () => setState(() => _showLinks = true),
+                onShowDevTools: () => setState(() => _showLinks = false),
               ),
             ),
           if (!_open)
@@ -66,7 +129,7 @@ class _EmbeddedDevToolsOverlayState extends State<EmbeddedDevToolsOverlay> {
               top: _bubble.dy,
               child: GestureDetector(
                 onPanUpdate: (d) => setState(() => _bubble += d.delta),
-                onTap: () => setState(() => _open = true),
+                onTap: () => _openSheet(server),
                 child: Material(
                   color: Colors.blueGrey.shade800,
                   shape: const CircleBorder(),
@@ -84,11 +147,47 @@ class _EmbeddedDevToolsOverlayState extends State<EmbeddedDevToolsOverlay> {
   }
 }
 
-class _DevToolsSheet extends StatelessWidget {
-  const _DevToolsSheet({required this.server, required this.onClose});
+class _DevToolsBottomSheet extends StatefulWidget {
+  const _DevToolsBottomSheet({
+    required this.open,
+    required this.showLinks,
+    required this.server,
+    required this.controller,
+    required this.progress,
+    required this.sheetHeightFraction,
+    required this.animDuration,
+    required this.onClose,
+    required this.onReload,
+    required this.onShowLinks,
+    required this.onShowDevTools,
+  });
 
+  final bool open;
+  final bool showLinks;
   final DevToolsServerHandle? server;
+  final WebViewController? controller;
+  final int progress;
+  final double sheetHeightFraction;
+  final Duration animDuration;
   final VoidCallback onClose;
+  final VoidCallback onReload;
+  final VoidCallback onShowLinks;
+  final VoidCallback onShowDevTools;
+
+  @override
+  State<_DevToolsBottomSheet> createState() => _DevToolsBottomSheetState();
+}
+
+class _DevToolsBottomSheetState extends State<_DevToolsBottomSheet> {
+  // Owned by Overlay after insert; rebuild via markNeedsBuild so the entry
+  // always paints current widget fields (open / links / progress).
+  late final OverlayEntry _entry = OverlayEntry(builder: _buildContent);
+
+  @override
+  void didUpdateWidget(covariant _DevToolsBottomSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _entry.markNeedsBuild();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -96,55 +195,155 @@ class _DevToolsSheet extends StatelessWidget {
       data: ThemeData.dark(useMaterial3: true),
       // Tooltips and dialogs need an Overlay ancestor; inside MaterialApp's
       // builder there is none, so provide our own.
-      child: Overlay(initialEntries: [OverlayEntry(builder: _buildContent)]),
+      child: Overlay(initialEntries: [_entry]),
     );
   }
 
   Widget _buildContent(BuildContext context) {
-    final devToolsUrl = server?.devToolsUrl;
-    return DefaultTabController(
-      length: 2,
-      child: Material(
-        // Fully opaque: anything less lets the host app's UI (e.g. its AppBar
-        // title) bleed through and collide with the sheet's own chrome.
-        color: const Color(0xFF111111),
-        child: SafeArea(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text(
-                      'DevTools',
-                      style: TextStyle(color: Colors.white, fontSize: 20),
-                    ),
+    final media = MediaQuery.of(context);
+    final sheetHeight = media.size.height * widget.sheetHeightFraction;
+
+    return IgnorePointer(
+      ignoring: !widget.open,
+      child: Stack(
+        children: [
+          AnimatedOpacity(
+            opacity: widget.open ? 1 : 0,
+            duration: widget.animDuration,
+            curve: Curves.easeOut,
+            child: GestureDetector(
+              onTap: widget.onClose,
+              behavior: HitTestBehavior.opaque,
+              child: const ColoredBox(color: Color(0x99000000)),
+            ),
+          ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: AnimatedSlide(
+              offset: Offset(0, widget.open ? 0 : 1),
+              duration: widget.animDuration,
+              curve: Curves.easeOutCubic,
+              child: Material(
+                color: const Color(0xFF111111),
+                elevation: 8,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(16),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: SizedBox(
+                  height: sheetHeight,
+                  width: double.infinity,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const SizedBox(height: 8),
+                      Center(
+                        child: Container(
+                          width: 36,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: Colors.white24,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                      _SheetHeader(
+                        showLinks: widget.showLinks,
+                        canReload:
+                            widget.controller != null && !widget.showLinks,
+                        onClose: widget.onClose,
+                        onReload: widget.onReload,
+                        onShowLinks: widget.onShowLinks,
+                        onShowDevTools: widget.onShowDevTools,
+                      ),
+                      Expanded(
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            // Keep the WebView mounted whenever it exists so
+                            // closing / switching to Links does not dispose it.
+                            if (widget.controller != null)
+                              Offstage(
+                                offstage: widget.showLinks,
+                                child: TickerMode(
+                                  enabled: widget.open && !widget.showLinks,
+                                  child: _PersistentWebView(
+                                    controller: widget.controller!,
+                                    progress: widget.progress,
+                                  ),
+                                ),
+                              )
+                            else if (!widget.showLinks)
+                              const _NoServer(),
+                            if (widget.showLinks)
+                              _LinksTab(server: widget.server),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                  const Spacer(),
-                  IconButton(
-                    onPressed: onClose,
-                    icon: const Icon(Icons.close, color: Colors.white),
-                  ),
-                ],
-              ),
-              const TabBar(
-                tabs: [Tab(text: 'DevTools'), Tab(text: 'Links')],
-              ),
-              Expanded(
-                child: TabBarView(
-                  children: [
-                    if (devToolsUrl != null)
-                      _WebViewTab(url: devToolsUrl)
-                    else
-                      const _NoServer(),
-                    _LinksTab(server: server),
-                  ],
                 ),
               ),
-            ],
+            ),
           ),
-        ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SheetHeader extends StatelessWidget {
+  const _SheetHeader({
+    required this.showLinks,
+    required this.canReload,
+    required this.onClose,
+    required this.onReload,
+    required this.onShowLinks,
+    required this.onShowDevTools,
+  });
+
+  final bool showLinks;
+  final bool canReload;
+  final VoidCallback onClose;
+  final VoidCallback onReload;
+  final VoidCallback onShowLinks;
+  final VoidCallback onShowDevTools;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Row(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Text(
+              showLinks ? 'Links' : 'DevTools',
+              style: const TextStyle(color: Colors.white, fontSize: 20),
+            ),
+          ),
+          const Spacer(),
+          if (canReload)
+            IconButton(
+              tooltip: 'Reload DevTools',
+              onPressed: onReload,
+              icon: const Icon(Icons.refresh, color: Colors.white),
+            ),
+          if (showLinks)
+            TextButton(
+              onPressed: onShowDevTools,
+              child: const Text('DevTools'),
+            )
+          else
+            TextButton(
+              onPressed: onShowLinks,
+              child: const Text('Links'),
+            ),
+          IconButton(
+            onPressed: onClose,
+            icon: const Icon(Icons.close, color: Colors.white),
+          ),
+        ],
       ),
     );
   }
@@ -170,42 +369,21 @@ class _NoServer extends StatelessWidget {
   }
 }
 
-/// Renders the full DevTools web build inside the app's own WebView.
-class _WebViewTab extends StatefulWidget {
-  const _WebViewTab({required this.url});
+class _PersistentWebView extends StatelessWidget {
+  const _PersistentWebView({
+    required this.controller,
+    required this.progress,
+  });
 
-  final Uri url;
-
-  @override
-  State<_WebViewTab> createState() => _WebViewTabState();
-}
-
-class _WebViewTabState extends State<_WebViewTab> {
-  late final WebViewController _controller;
-  int _progress = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(const Color(0xFF111111))
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onProgress: (p) {
-            if (mounted) setState(() => _progress = p);
-          },
-        ),
-      )
-      ..loadRequest(widget.url);
-  }
+  final WebViewController controller;
+  final int progress;
 
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        WebViewWidget(controller: _controller),
-        if (_progress < 100) LinearProgressIndicator(value: _progress / 100),
+        WebViewWidget(controller: controller),
+        if (progress < 100) LinearProgressIndicator(value: progress / 100),
       ],
     );
   }

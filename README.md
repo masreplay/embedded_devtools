@@ -69,13 +69,17 @@ if (!kReleaseMode) EmbeddedDevTools.start();
 
 ---
 
-## Extensions come along for free
+## Extensions
 
-> **Status: partially working.** Extensions are discovered, listed in DevTools'
-> Extensions dialog, and their UI renders on-device. But an extension that
-> talks back to its own package at runtime (e.g. `provider` listing your
-> providers) currently fails to connect — see
-> [Known issues](#known-issues). The plumbing works; the last hop doesn't yet.
+> **Read this before relying on extensions.** They are discovered, listed, and
+> their UI renders on-device — but most popular extensions **cannot function**
+> here, and it isn't a bug we can fix. `provider`, `riverpod`,
+> `shared_preferences` and `get_it` all inspect your app through **expression
+> evaluation**, which needs a compilation service that only exists when a
+> computer runs `flutter run`. See [Extensions and eval](#extensions-and-eval).
+>
+> Everything else — Inspector, Performance, CPU, Memory, Network, Logging —
+> works normally, and none of it needs eval.
 
 Anything you already depend on that ships a DevTools extension appears under
 DevTools' own **Extensions** area. Nothing to register, no code to write:
@@ -167,30 +171,44 @@ rather open DevTools in the phone's browser or from a PC on the same WiFi.
 > reverse-engineered DevTools server contract, what's proven vs assumed, and the
 > traps that already cost time.
 
-## Known issues
+## Extensions and eval
 
-**Extensions render but can't connect to their package.** Verified on an
-Android emulator with `provider` and `shared_preferences`:
+Extension support is real and the plumbing is verified end to end:
 
 | | Status |
 |---|---|
 | Discovered from `package_config.json` and bundled | ✅ |
 | Listed in DevTools' Extensions dialog, Enabled | ✅ |
-| Shown as screens in DevTools' menu, with icons | ✅ |
+| Shown as screens in DevTools' menu, with their icons | ✅ |
 | Extension iframe loads and its UI renders | ✅ |
-| Extension talks to its package in the running app | ❌ |
+| Extension inspects your app **via eval** | ❌ **impossible — see below** |
 
-`provider`'s extension reports *"DevTools failed to connect with
-package:provider"*. This happens in **both profile and debug** builds, so it
-isn't the usual `kDebugMode` gating.
+**Expression evaluation cannot work without a computer.** The Dart VM does not
+compile Dart source. When DevTools evaluates an expression, the VM delegates to
+`_compileExpression` — a service registered by the **`frontend_server` that
+`flutter run` starts on your machine**. A standalone app has no Flutter tool
+attached, so the VM answers:
 
-Current lead: DevTools reports **"Flutter native (profile build)"** even for a
-debug build when connected through this server's websocket proxy. If DevTools
-misidentifies the build type it disables the evaluation-based features an
-extension like `provider` relies on. Unconfirmed.
+```
+_compileExpression: No compilation service available; cannot evaluate from source.
+```
 
-Everything else — Inspector, Performance, CPU, Memory, Network, Logging — works
-normally.
+This is by construction, not a bug, and it applies in **debug builds too** — it
+has nothing to do with `kDebugMode` or build modes at all.
+
+`provider`, `riverpod`, `shared_preferences` and `get_it` all read your app's
+state by evaluating expressions (e.g. `shared_preferences` evaluates
+`SharedPreferencesDevToolsExtensionData().…`). Their panels will render and then
+report a connection error — `provider` says *"DevTools failed to connect with
+package:provider"*, which is misleading: your provider version is fine.
+
+An extension that talks to its package through **registered service extensions**
+(`ext.<name>.*`) rather than eval would work here — the transport is a plain
+websocket proxy with no filtering, and all 71 of the app's service extensions
+are visible through it. We just don't know of a popular one that does.
+
+DevTools' own eval-dependent surfaces (the evaluation console, watch
+expressions) are unavailable for the same reason. Everything else is unaffected.
 
 ## Hard limits (physics, not bugs)
 
