@@ -150,6 +150,10 @@ rather open DevTools in the phone's browser or from a PC on the same WiFi.
 
 ---
 
+> Working on this? Read **[docs/CONTEXT.md](docs/CONTEXT.md)** first — it has the
+> reverse-engineered DevTools server contract, what's proven vs assumed, and the
+> traps that already cost time.
+
 ## Known issues
 
 **Extensions render but can't connect to their package.** Verified on an
