@@ -99,6 +99,7 @@ class EmbeddedDevTools {
     int port = 9200,
     bool keepAlive = true,
     List<DevToolsExtensionInfo>? extensions,
+    bool logRequests = false,
     bool? isRelease,
     VmServiceInfo? vmInfo,
     AssetReader? assetReader,
@@ -118,7 +119,7 @@ class EmbeddedDevTools {
     }
     if (http == null) return null;
     final exts = extensions ?? await _readExtensionManifest(read);
-    _server = DevToolsServer._(http, vm, read, exts);
+    _server = DevToolsServer._(http, vm, read, exts, logRequests);
     if (keepAlive) await _startKeepAlive(http.port);
     return _server;
   }
@@ -145,7 +146,8 @@ abstract class DevToolsServerHandle {
 }
 
 class DevToolsServer implements DevToolsServerHandle {
-  DevToolsServer._(this._http, this._vm, this._readAsset, this._extensions) {
+  DevToolsServer._(this._http, this._vm, this._readAsset, this._extensions,
+      this._logRequests) {
     _http.listen(_handle);
   }
 
@@ -153,6 +155,7 @@ class DevToolsServer implements DevToolsServerHandle {
   final VmServiceInfo? _vm;
   final AssetReader _readAsset;
   final List<DevToolsExtensionInfo> _extensions;
+  final bool _logRequests;
 
   @override
   int get port => _http.port;
@@ -193,6 +196,10 @@ class DevToolsServer implements DevToolsServerHandle {
     try {
       final vmWsPath = _vm?.wsPath ?? '/__no_vm__';
       final route = routeRequest(req.uri.path, vmWsPath: vmWsPath);
+      if (_logRequests && route.kind != ServerRouteKind.devtoolsAsset) {
+        // ignore: avoid_print
+        print('[embedded_devtools] ${route.kind.name} <- ${req.uri}');
+      }
       switch (route.kind) {
         case ServerRouteKind.vmWebSocket:
           await _proxyWebSocket(req);

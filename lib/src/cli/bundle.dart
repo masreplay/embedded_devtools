@@ -22,6 +22,11 @@ bool runBundle() {
   if (!_copyDevTools(dirs)) return false;
   final extensions = _bundleExtensions(dirs);
   _writeManifest(extensions);
+  // The manifest sits at the root of the extensions dir, which _copyTree never
+  // records (it only registers directories it copies files into). Without this
+  // the manifest isn't bundled, rootBundle can't read it, and DevTools is told
+  // there are no extensions.
+  dirs.add(extensionsDest);
   _patchPubspec(dirs);
   return true;
 }
