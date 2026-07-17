@@ -185,7 +185,7 @@ returns one landing-page URL per network interface.
 
 ---
 
-> Working on this? Read **[docs/CONTEXT.md](docs/CONTEXT.md)** first — it has the
+> Working on this? Read **[doc/CONTEXT.md](doc/CONTEXT.md)** first — it has the
 > reverse-engineered DevTools server contract, what's proven vs assumed, and the
 > traps that already cost time.
 
