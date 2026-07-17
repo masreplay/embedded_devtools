@@ -58,6 +58,12 @@ flutter build apk --profile
 
 ## Extensions come along for free
 
+> **Status: partially working.** Extensions are discovered, listed in DevTools'
+> Extensions dialog, and their UI renders on-device. But an extension that
+> talks back to its own package at runtime (e.g. `provider` listing your
+> providers) currently fails to connect — see
+> [Known issues](#known-issues). The plumbing works; the last hop doesn't yet.
+
 Anything you already depend on that ships a DevTools extension appears under
 DevTools' own **Extensions** area. Nothing to register, no code to write:
 
@@ -143,6 +149,31 @@ The overlay's **Links** tab also lists a LAN URL per network interface, if you'd
 rather open DevTools in the phone's browser or from a PC on the same WiFi.
 
 ---
+
+## Known issues
+
+**Extensions render but can't connect to their package.** Verified on an
+Android emulator with `provider` and `shared_preferences`:
+
+| | Status |
+|---|---|
+| Discovered from `package_config.json` and bundled | ✅ |
+| Listed in DevTools' Extensions dialog, Enabled | ✅ |
+| Shown as screens in DevTools' menu, with icons | ✅ |
+| Extension iframe loads and its UI renders | ✅ |
+| Extension talks to its package in the running app | ❌ |
+
+`provider`'s extension reports *"DevTools failed to connect with
+package:provider"*. This happens in **both profile and debug** builds, so it
+isn't the usual `kDebugMode` gating.
+
+Current lead: DevTools reports **"Flutter native (profile build)"** even for a
+debug build when connected through this server's websocket proxy. If DevTools
+misidentifies the build type it disables the evaluation-based features an
+extension like `provider` relies on. Unconfirmed.
+
+Everything else — Inspector, Performance, CPU, Memory, Network, Logging — works
+normally.
 
 ## Hard limits (physics, not bugs)
 
