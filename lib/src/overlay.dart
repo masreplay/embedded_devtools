@@ -199,17 +199,42 @@ class _DevToolsBottomSheetState extends State<_DevToolsBottomSheet> {
     );
   }
 
+  /// How far the sheet has been dragged down, in pixels.
+  double _dragPx = 0;
+
+  /// True while a finger is down, so the sheet tracks it with no animation.
+  bool _dragging = false;
+
+  void _onDragStart(DragStartDetails _) => setState(() => _dragging = true);
+
+  void _onDragUpdate(DragUpdateDetails d, double sheetHeight) {
+    // Clamp at 0: dragging up can't grow the sheet past its height.
+    setState(() => _dragPx = (_dragPx + d.delta.dy).clamp(0.0, sheetHeight));
+  }
+
+  void _onDragEnd(DragEndDetails d, double sheetHeight) {
+    final flungDown = d.velocity.pixelsPerSecond.dy > 700;
+    final draggedFar = _dragPx > sheetHeight * 0.25;
+    setState(() {
+      _dragging = false;
+      _dragPx = 0; // either way the offset returns to 0; `open` decides the rest
+    });
+    if (flungDown || draggedFar) widget.onClose();
+  }
+
   Widget _buildContent(BuildContext context) {
     final media = MediaQuery.of(context);
     final sheetHeight = media.size.height * widget.sheetHeightFraction;
+    final dragFraction = sheetHeight == 0 ? 0.0 : _dragPx / sheetHeight;
 
     return IgnorePointer(
       ignoring: !widget.open,
       child: Stack(
         children: [
           AnimatedOpacity(
-            opacity: widget.open ? 1 : 0,
-            duration: widget.animDuration,
+            // Fade the scrim out as the sheet is dragged away.
+            opacity: widget.open ? (1 - dragFraction).clamp(0.0, 1.0) : 0,
+            duration: _dragging ? Duration.zero : widget.animDuration,
             curve: Curves.easeOut,
             child: GestureDetector(
               onTap: widget.onClose,
@@ -220,8 +245,11 @@ class _DevToolsBottomSheetState extends State<_DevToolsBottomSheet> {
           Align(
             alignment: Alignment.bottomCenter,
             child: AnimatedSlide(
-              offset: Offset(0, widget.open ? 0 : 1),
-              duration: widget.animDuration,
+              // Open sheets sit at the drag offset; closed ones sit fully off
+              // screen. While a finger is down the duration is zero so the
+              // sheet tracks it 1:1 instead of lagging behind an animation.
+              offset: Offset(0, widget.open ? dragFraction : 1),
+              duration: _dragging ? Duration.zero : widget.animDuration,
               curve: Curves.easeOutCubic,
               child: Material(
                 color: const Color(0xFF111111),
@@ -236,25 +264,39 @@ class _DevToolsBottomSheetState extends State<_DevToolsBottomSheet> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const SizedBox(height: 8),
-                      Center(
-                        child: Container(
-                          width: 36,
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: Colors.white24,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
+                      // Drag target: the handle and header only. The WebView
+                      // below owns its own vertical gestures (DevTools scrolls),
+                      // so dragging there must not move the sheet.
+                      GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onVerticalDragStart: _onDragStart,
+                        onVerticalDragUpdate: (d) => _onDragUpdate(d, sheetHeight),
+                        onVerticalDragEnd: (d) => _onDragEnd(d, sheetHeight),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const SizedBox(height: 8),
+                            Center(
+                              child: Container(
+                                width: 36,
+                                height: 4,
+                                decoration: BoxDecoration(
+                                  color: Colors.white24,
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                              ),
+                            ),
+                            _SheetHeader(
+                              showLinks: widget.showLinks,
+                              canReload: widget.controller != null &&
+                                  !widget.showLinks,
+                              onClose: widget.onClose,
+                              onReload: widget.onReload,
+                              onShowLinks: widget.onShowLinks,
+                              onShowDevTools: widget.onShowDevTools,
+                            ),
+                          ],
                         ),
-                      ),
-                      _SheetHeader(
-                        showLinks: widget.showLinks,
-                        canReload:
-                            widget.controller != null && !widget.showLinks,
-                        onClose: widget.onClose,
-                        onReload: widget.onReload,
-                        onShowLinks: widget.onShowLinks,
-                        onShowDevTools: widget.onShowDevTools,
                       ),
                       Expanded(
                         child: Stack(
