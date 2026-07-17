@@ -1,0 +1,21 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application>
+        <!-- Keeps the app process out of the cached-app freezer (Android 12+)
+             while the embedded DevTools server must stay reachable — e.g. the
+             tester opens DevTools in the phone's own browser, backgrounding
+             the app. Debug/profile only: the Dart side never starts it in
+             release. -->
+        <service
+            android:name="dev.embedded_devtools.KeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Serves Flutter DevTools over HTTP while the app is backgrounded" />
+        </service>
+    </application>
+</manifest>

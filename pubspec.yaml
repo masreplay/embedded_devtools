@@ -1,0 +1,30 @@
+name: embedded_devtools
+description: Flutter DevTools embedded in your app — open the full DevTools suite on a real device with no computer, no cable and no IDE.
+version: 0.1.0
+topics: [devtools, debugging, qa, testing, profiling]
+repository: https://github.com/masreplay/embedded_devtools
+issue_tracker: https://github.com/masreplay/embedded_devtools/issues
+
+environment:
+  sdk: ^3.8.0
+  flutter: '>=3.24.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  url_launcher: ^6.3.0
+  webview_flutter: ^4.7.0
+  yaml: ^3.1.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  plugin:
+    platforms:
+      android:
+        package: dev.embedded_devtools
+        pluginClass: EmbeddedDevToolsPlugin
