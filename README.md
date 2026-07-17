@@ -10,6 +10,18 @@ ship. All of it inside the app.
 The app serves the DevTools web build from its own assets and proxies its own
 VM service, so nothing outside the phone is involved.
 
+<p align="center">
+  <img src="doc/images/app.png" alt="The example app: a Send API request button and the DevTools bubble" width="30%">
+  &nbsp;
+  <img src="doc/images/devtools.png" alt="Full DevTools open in-app, connected to the app's own VM service" width="30%">
+  &nbsp;
+  <img src="doc/images/network.png" alt="The Network tab capturing a request fired from the app, with full headers" width="30%">
+</p>
+<p align="center"><sub>
+  The example app · full DevTools running in-app · the Network tab capturing a
+  request — all on-device, no computer attached.
+</sub></p>
+
 ---
 
 ## Install

@@ -12,7 +12,9 @@ flutter build apk --profile
 adb install -r build/app/outputs/flutter-apk/app-profile.apk
 ```
 
-Launch the app and tap the bubble.
+Launch the app, tap **Send API request** a few times, then tap the bubble and
+open the **Network** tab — the requests show up live, headers and all. The
+button fires a plain `dart:io` GET, which the VM profiles automatically.
 
 **Use `--profile`** (or `--debug`). Release builds have no Dart VM service, so
 DevTools has nothing to attach to and the overlay renders nothing.
