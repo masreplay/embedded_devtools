@@ -9,8 +9,8 @@ class _FakeServer implements DevToolsServerHandle {
   @override
   Uri get localUrl => Uri.parse('http://127.0.0.1:9200/qa');
 
-  // Null keeps the WebView out of widget tests (the webview platform has no
-  // test implementation); the Links tab still renders.
+  // Null keeps the WebView out of widget tests: the webview platform has no
+  // test implementation, so the sheet renders its no-server state instead.
   @override
   Uri? get devToolsUrl => null;
 
@@ -22,7 +22,7 @@ class _FakeServer implements DevToolsServerHandle {
 }
 
 void main() {
-  testWidgets('bubble opens the sheet and lists the urls', (tester) async {
+  testWidgets('bubble opens the sheet over the app', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: EmbeddedDevToolsOverlay(
@@ -32,15 +32,14 @@ void main() {
       ),
     );
     expect(find.text('app'), findsOneWidget);
-    expect(find.byIcon(Icons.build), findsOneWidget);
+    expect(find.byType(FlutterLogo), findsOneWidget);
 
-    await tester.tap(find.byIcon(Icons.build));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Links'));
+    await tester.tap(find.byType(FlutterLogo));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('127.0.0.1:9200'), findsOneWidget);
-    expect(find.textContaining('10.0.0.5:9200'), findsOneWidget);
+    expect(find.text('DevTools'), findsOneWidget);
+    // The bubble hides while the sheet is up.
+    expect(find.byType(FlutterLogo), findsNothing);
   });
 
   testWidgets('sheet closes back to the bubble', (tester) async {
@@ -52,18 +51,18 @@ void main() {
         ),
       ),
     );
-    await tester.tap(find.byIcon(Icons.build));
+    await tester.tap(find.byType(FlutterLogo));
     await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Icons.close));
     await tester.pumpAndSettle();
-    expect(find.byIcon(Icons.build), findsOneWidget);
+    expect(find.byType(FlutterLogo), findsOneWidget);
   });
 
   testWidgets('explains itself when no server is running', (tester) async {
     await tester.pumpWidget(
       const MaterialApp(home: EmbeddedDevToolsOverlay(child: Text('app'))),
     );
-    await tester.tap(find.byIcon(Icons.build));
+    await tester.tap(find.byType(FlutterLogo));
     await tester.pumpAndSettle();
     expect(find.textContaining('No DevTools server is running'), findsWidgets);
   });

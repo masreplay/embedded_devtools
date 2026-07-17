@@ -1,18 +1,13 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import 'devtools_server.dart';
 
 /// Wraps the app (via `MaterialApp`'s `builder`) with a draggable bubble.
-/// Tapping it opens a bottom sheet with:
-///
-/// - **DevTools** — the full DevTools suite in an in-app WebView, pointed at
-///   the embedded server. No external browser, no cable, no IDE.
-/// - **Links** — the same URLs for opening DevTools in the phone's browser or
-///   from a PC on the same network.
+/// Tapping it opens a bottom sheet holding the full DevTools suite in an in-app
+/// WebView, pointed at the embedded server — no external browser, no cable, no
+/// IDE. Drag the handle to resize it between detents, or down to dismiss.
 ///
 /// The WebView is kept alive after the sheet is dismissed so reopening does
 /// not cold-boot DevTools. Use the refresh control to force a reload.
@@ -41,7 +36,6 @@ class _EmbeddedDevToolsOverlayState extends State<EmbeddedDevToolsOverlay> {
   static const _animDuration = Duration(milliseconds: 280);
 
   bool _open = false;
-  bool _showLinks = false;
   /// True after the first open so the sheet (and WebView) stay in the tree.
   bool _sheetMounted = false;
   Offset _bubble = const Offset(16, 200);
@@ -72,16 +66,12 @@ class _EmbeddedDevToolsOverlayState extends State<EmbeddedDevToolsOverlay> {
     setState(() {
       _open = true;
       _sheetMounted = true;
-      _showLinks = false;
       if (url != null) _ensureWebView(url);
     });
   }
 
   void _closeSheet() {
-    setState(() {
-      _open = false;
-      _showLinks = false;
-    });
+    setState(() => _open = false);
   }
 
   void _reloadWebView() {
@@ -111,16 +101,12 @@ class _EmbeddedDevToolsOverlayState extends State<EmbeddedDevToolsOverlay> {
             Positioned.fill(
               child: _DevToolsBottomSheet(
                 open: _open,
-                showLinks: _showLinks,
-                server: server,
                 controller: _controller,
                 progress: _progress,
                 sheetHeightFraction: _sheetHeightFraction,
                 animDuration: _animDuration,
                 onClose: _closeSheet,
                 onReload: _reloadWebView,
-                onShowLinks: () => setState(() => _showLinks = true),
-                onShowDevTools: () => setState(() => _showLinks = false),
               ),
             ),
           if (!_open)
@@ -131,12 +117,13 @@ class _EmbeddedDevToolsOverlayState extends State<EmbeddedDevToolsOverlay> {
                 onPanUpdate: (d) => setState(() => _bubble += d.delta),
                 onTap: () => _openSheet(server),
                 child: Material(
-                  color: Colors.blueGrey.shade800,
+                  // Flutter brand blue.
+                  color: const Color(0xFF0175C2),
                   shape: const CircleBorder(),
                   elevation: 4,
                   child: const Padding(
                     padding: EdgeInsets.all(10),
-                    child: Icon(Icons.build, color: Colors.white, size: 20),
+                    child: FlutterLogo(size: 22),
                   ),
                 ),
               ),
@@ -150,29 +137,21 @@ class _EmbeddedDevToolsOverlayState extends State<EmbeddedDevToolsOverlay> {
 class _DevToolsBottomSheet extends StatefulWidget {
   const _DevToolsBottomSheet({
     required this.open,
-    required this.showLinks,
-    required this.server,
     required this.controller,
     required this.progress,
     required this.sheetHeightFraction,
     required this.animDuration,
     required this.onClose,
     required this.onReload,
-    required this.onShowLinks,
-    required this.onShowDevTools,
   });
 
   final bool open;
-  final bool showLinks;
-  final DevToolsServerHandle? server;
   final WebViewController? controller;
   final int progress;
   final double sheetHeightFraction;
   final Duration animDuration;
   final VoidCallback onClose;
   final VoidCallback onReload;
-  final VoidCallback onShowLinks;
-  final VoidCallback onShowDevTools;
 
   @override
   State<_DevToolsBottomSheet> createState() => _DevToolsBottomSheetState();
@@ -180,7 +159,7 @@ class _DevToolsBottomSheet extends StatefulWidget {
 
 class _DevToolsBottomSheetState extends State<_DevToolsBottomSheet> {
   // Owned by Overlay after insert; rebuild via markNeedsBuild so the entry
-  // always paints current widget fields (open / links / progress).
+  // always paints current widget fields (open / drag position / progress).
   late final OverlayEntry _entry = OverlayEntry(builder: _buildContent);
 
   @override
@@ -199,41 +178,81 @@ class _DevToolsBottomSheetState extends State<_DevToolsBottomSheet> {
     );
   }
 
-  /// How far the sheet has been dragged down, in pixels.
-  double _dragPx = 0;
+  /// Heights the sheet settles at, as fractions of the screen. The last must
+  /// equal [_DevToolsBottomSheet.sheetHeightFraction] — the sheet is always
+  /// laid out at that height and translated down to show less, so the content
+  /// (and the WebView) never relayouts while dragging.
+  static const _snaps = <double>[0.3, 0.6, 0.9];
 
-  /// True while a finger is down, so the sheet tracks it with no animation.
-  bool _dragging = false;
+  /// Velocity beyond which a flick jumps a detent instead of snapping to the
+  /// nearest one.
+  static const _flingVelocity = 700.0;
 
-  void _onDragStart(DragStartDetails _) => setState(() => _dragging = true);
+  /// The detent the sheet rests at while open.
+  double _snap = _snaps.last;
 
-  void _onDragUpdate(DragUpdateDetails d, double sheetHeight) {
-    // Clamp at 0: dragging up can't grow the sheet past its height.
-    setState(() => _dragPx = (_dragPx + d.delta.dy).clamp(0.0, sheetHeight));
+  /// Live height fraction while a finger is down; null when not dragging.
+  double? _dragFraction;
+
+  bool get _dragging => _dragFraction != null;
+
+  void _onDragStart(DragStartDetails _) => setState(() => _dragFraction = _snap);
+
+  void _onDragUpdate(DragUpdateDetails d, double screenHeight) {
+    setState(() {
+      // Dragging down (positive dy) shows less of the sheet.
+      _dragFraction = ((_dragFraction ?? _snap) - d.delta.dy / screenHeight)
+          .clamp(0.0, widget.sheetHeightFraction);
+    });
   }
 
-  void _onDragEnd(DragEndDetails d, double sheetHeight) {
-    final flungDown = d.velocity.pixelsPerSecond.dy > 700;
-    final draggedFar = _dragPx > sheetHeight * 0.25;
+  void _onDragEnd(DragEndDetails d) {
+    final velocity = d.velocity.pixelsPerSecond.dy;
+    final pos = _dragFraction ?? _snap;
+
+    // null target => dismiss.
+    double? target;
+    if (velocity > _flingVelocity) {
+      // Flick down: drop to the next detent below, or dismiss past the last.
+      final below = _snaps.where((s) => s < pos - 0.02);
+      target = below.isEmpty ? null : below.last;
+    } else if (velocity < -_flingVelocity) {
+      // Flick up: rise to the next detent above.
+      final above = _snaps.where((s) => s > pos + 0.02);
+      target = above.isEmpty ? _snaps.last : above.first;
+    } else if (pos < _snaps.first / 2) {
+      // Released below half the smallest detent: treat as dismiss.
+      target = null;
+    } else {
+      target = _snaps
+          .reduce((a, b) => (a - pos).abs() <= (b - pos).abs() ? a : b);
+    }
+
     setState(() {
-      _dragging = false;
-      _dragPx = 0; // either way the offset returns to 0; `open` decides the rest
+      _dragFraction = null;
+      if (target != null) _snap = target;
     });
-    if (flungDown || draggedFar) widget.onClose();
+    if (target == null) widget.onClose();
   }
 
   Widget _buildContent(BuildContext context) {
     final media = MediaQuery.of(context);
-    final sheetHeight = media.size.height * widget.sheetHeightFraction;
-    final dragFraction = sheetHeight == 0 ? 0.0 : _dragPx / sheetHeight;
+    final maxFraction = widget.sheetHeightFraction;
+    final sheetHeight = media.size.height * maxFraction;
+
+    // How much of the sheet is on screen right now, as a fraction of screen.
+    final visible = _dragFraction ?? _snap;
+    // AnimatedSlide's offset is a fraction of the child's own height.
+    final slide = (1 - visible / maxFraction).clamp(0.0, 1.0);
 
     return IgnorePointer(
       ignoring: !widget.open,
       child: Stack(
         children: [
           AnimatedOpacity(
-            // Fade the scrim out as the sheet is dragged away.
-            opacity: widget.open ? (1 - dragFraction).clamp(0.0, 1.0) : 0,
+            // Dim in proportion to how much sheet is showing, so a peek at the
+            // smallest detent barely dims the app behind it.
+            opacity: widget.open ? (visible / maxFraction).clamp(0.0, 1.0) : 0,
             duration: _dragging ? Duration.zero : widget.animDuration,
             curve: Curves.easeOut,
             child: GestureDetector(
@@ -245,10 +264,10 @@ class _DevToolsBottomSheetState extends State<_DevToolsBottomSheet> {
           Align(
             alignment: Alignment.bottomCenter,
             child: AnimatedSlide(
-              // Open sheets sit at the drag offset; closed ones sit fully off
+              // Open sheets sit at their detent; closed ones sit fully off
               // screen. While a finger is down the duration is zero so the
               // sheet tracks it 1:1 instead of lagging behind an animation.
-              offset: Offset(0, widget.open ? dragFraction : 1),
+              offset: Offset(0, widget.open ? slide : 1),
               duration: _dragging ? Duration.zero : widget.animDuration,
               curve: Curves.easeOutCubic,
               child: Material(
@@ -270,8 +289,9 @@ class _DevToolsBottomSheetState extends State<_DevToolsBottomSheet> {
                       GestureDetector(
                         behavior: HitTestBehavior.opaque,
                         onVerticalDragStart: _onDragStart,
-                        onVerticalDragUpdate: (d) => _onDragUpdate(d, sheetHeight),
-                        onVerticalDragEnd: (d) => _onDragEnd(d, sheetHeight),
+                        onVerticalDragUpdate: (d) =>
+                            _onDragUpdate(d, media.size.height),
+                        onVerticalDragEnd: _onDragEnd,
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
@@ -287,39 +307,31 @@ class _DevToolsBottomSheetState extends State<_DevToolsBottomSheet> {
                               ),
                             ),
                             _SheetHeader(
-                              showLinks: widget.showLinks,
-                              canReload: widget.controller != null &&
-                                  !widget.showLinks,
+                              canReload: widget.controller != null,
                               onClose: widget.onClose,
                               onReload: widget.onReload,
-                              onShowLinks: widget.onShowLinks,
-                              onShowDevTools: widget.onShowDevTools,
                             ),
                           ],
                         ),
                       ),
                       Expanded(
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            // Keep the WebView mounted whenever it exists so
-                            // closing / switching to Links does not dispose it.
-                            if (widget.controller != null)
-                              Offstage(
-                                offstage: widget.showLinks,
-                                child: TickerMode(
-                                  enabled: widget.open && !widget.showLinks,
+                        // Keep the WebView clear of the system navigation bar:
+                        // the sheet is bottom-aligned and full-bleed, so without
+                        // this its last strip sits under the gesture bar and
+                        // taps there never reach DevTools.
+                        child: Padding(
+                          padding: EdgeInsets.only(bottom: media.padding.bottom),
+                          // Keep the WebView mounted whenever it exists so
+                          // closing the sheet does not dispose it.
+                          child: widget.controller != null
+                              ? TickerMode(
+                                  enabled: widget.open,
                                   child: _PersistentWebView(
                                     controller: widget.controller!,
                                     progress: widget.progress,
                                   ),
-                                ),
-                              )
-                            else if (!widget.showLinks)
-                              const _NoServer(),
-                            if (widget.showLinks)
-                              _LinksTab(server: widget.server),
-                          ],
+                                )
+                              : const _NoServer(),
                         ),
                       ),
                     ],
@@ -336,20 +348,14 @@ class _DevToolsBottomSheetState extends State<_DevToolsBottomSheet> {
 
 class _SheetHeader extends StatelessWidget {
   const _SheetHeader({
-    required this.showLinks,
     required this.canReload,
     required this.onClose,
     required this.onReload,
-    required this.onShowLinks,
-    required this.onShowDevTools,
   });
 
-  final bool showLinks;
   final bool canReload;
   final VoidCallback onClose;
   final VoidCallback onReload;
-  final VoidCallback onShowLinks;
-  final VoidCallback onShowDevTools;
 
   @override
   Widget build(BuildContext context) {
@@ -357,11 +363,11 @@ class _SheetHeader extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Row(
         children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             child: Text(
-              showLinks ? 'Links' : 'DevTools',
-              style: const TextStyle(color: Colors.white, fontSize: 20),
+              'DevTools',
+              style: TextStyle(color: Colors.white, fontSize: 20),
             ),
           ),
           const Spacer(),
@@ -370,16 +376,6 @@ class _SheetHeader extends StatelessWidget {
               tooltip: 'Reload DevTools',
               onPressed: onReload,
               icon: const Icon(Icons.refresh, color: Colors.white),
-            ),
-          if (showLinks)
-            TextButton(
-              onPressed: onShowDevTools,
-              child: const Text('DevTools'),
-            )
-          else
-            TextButton(
-              onPressed: onShowLinks,
-              child: const Text('Links'),
             ),
           IconButton(
             onPressed: onClose,
@@ -427,78 +423,6 @@ class _PersistentWebView extends StatelessWidget {
         WebViewWidget(controller: controller),
         if (progress < 100) LinearProgressIndicator(value: progress / 100),
       ],
-    );
-  }
-}
-
-class _LinksTab extends StatelessWidget {
-  const _LinksTab({required this.server});
-
-  final DevToolsServerHandle? server;
-
-  @override
-  Widget build(BuildContext context) {
-    final server = this.server;
-    if (server == null) return const _NoServer();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Padding(
-          padding: EdgeInsets.all(16),
-          child: Text(
-            'Open DevTools in this phone\'s browser, or from a PC on the same '
-            'WiFi:',
-            style: TextStyle(color: Colors.white70),
-          ),
-        ),
-        Expanded(
-          child: FutureBuilder<List<Uri>>(
-            future: server.lanUrls(),
-            builder: (context, snapshot) {
-              final urls = [server.localUrl, ...?snapshot.data];
-              return ListView(
-                children: [for (final url in urls) _UrlRow(url: url)],
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _UrlRow extends StatelessWidget {
-  const _UrlRow({required this.url});
-
-  final Uri url;
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      title: SelectableText(
-        '$url',
-        style: const TextStyle(color: Colors.lightBlueAccent, fontSize: 16),
-      ),
-      subtitle: Text(
-        url.host == '127.0.0.1'
-            ? 'This device (open in the phone browser)'
-            : 'LAN — open from a PC on the same network',
-        style: const TextStyle(color: Colors.white54),
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            icon: const Icon(Icons.copy, color: Colors.white70),
-            onPressed: () => Clipboard.setData(ClipboardData(text: '$url')),
-          ),
-          IconButton(
-            icon: const Icon(Icons.open_in_browser, color: Colors.white70),
-            onPressed: () =>
-                launchUrl(url, mode: LaunchMode.externalApplication),
-          ),
-        ],
-      ),
     );
   }
 }
