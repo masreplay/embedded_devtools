@@ -11,16 +11,20 @@ The app serves the DevTools web build from its own assets and proxies its own
 VM service, so nothing outside the phone is involved.
 
 <p align="center">
+  <img src="doc/images/demo.gif" alt="Fire a request from the app, open the in-app DevTools bubble, and watch it land in the Network tab — all on one device" width="52%">
+</p>
+<p align="center"><sub>
+  Fire a request from the app → open the in-app bubble → watch it in the Network
+  tab, with the decoded JSON response. One device, no computer attached.
+</sub></p>
+
+<p align="center">
   <img src="doc/images/app.png" alt="The example app: a Send API request button and the DevTools bubble" width="30%">
   &nbsp;
   <img src="doc/images/devtools.png" alt="Full DevTools open in-app, connected to the app's own VM service" width="30%">
   &nbsp;
   <img src="doc/images/network.png" alt="The Network tab capturing a request fired from the app, with full headers" width="30%">
 </p>
-<p align="center"><sub>
-  The example app · full DevTools running in-app · the Network tab capturing a
-  request — all on-device, no computer attached.
-</sub></p>
 
 ---
 
@@ -174,8 +178,10 @@ EmbeddedDevTools.server;    // DevToolsServerHandle? — urls, extensions, port
 EmbeddedDevToolsOverlay(child: child);
 ```
 
-The overlay's **Links** tab also lists a LAN URL per network interface, if you'd
-rather open DevTools in the phone's browser or from a PC on the same WiFi.
+The bubble opens a resizable bottom sheet holding DevTools in an in-app WebView.
+Drag the handle to snap between three heights, or down to dismiss. Prefer the
+phone's browser or a PC on the same WiFi? `EmbeddedDevTools.server?.lanUrls()`
+returns one landing-page URL per network interface.
 
 ---
 
@@ -258,3 +264,16 @@ If your app already sets its own `networkSecurityConfig`, `init` won't fight the
 manifest merger — it says so and leaves your config alone. Make sure it permits
 cleartext to `127.0.0.1`, or the DevTools tab will show
 `ERR_CLEARTEXT_NOT_PERMITTED`.
+
+---
+
+## Colophon
+
+In the spirit of disclosing how the sausage gets made: **this project was vibe
+coded with Claude (Anthropic's Fable model).** The design, the implementation,
+the reverse-engineering of DevTools' undocumented server protocol, and the
+on-device testing on Android and iOS were all done in a pairing session with an
+AI agent — then read, steered, and shipped by a human who takes responsibility
+for the result. If something here is wrong, that's on me, not the model.
+
+It works because it was driven on real devices, not because an AI said it would.
